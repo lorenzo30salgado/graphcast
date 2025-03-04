@@ -177,3 +177,52 @@ def _check_uniform_spacing_and_get_delta(vector):
   if not np.all(np.isclose(diff[0], diff)):
     raise ValueError(f'Vector {diff} is not uniformly spaced.')
   return diff[0]
+
+
+def physical_loss(predictions: xarray.Dataset) -> LossAndDiagnostics:
+ """Computes the physical loss function.
+  This loss function is the sum of the following terms:
+ * MSE loss on Navier-Stokes equations.
+ * MSE loss on Thermodynamics equations. (TODO)
+ """
+ # Navier-Stokes equations
+ u_pred = predictions['u']
+ v_pred = predictions['v']
+ p_pred = predictions['p']
+ x = predictions['x']
+ y = predictions['y']
+ t = predictions['t']
+ #air viscosity
+ lambda1 = (1.458e-6*(t+273.15)**1.5)/((t+273.15)+110.4)
+ #air density
+ lambda2 = p_pred/(287.05*(t+273.15))
+ 
+ u_x = torch.autograd.grad(u_pred, x, grad_outputs=torch.ones_like(u), create_graph=True)[0]
+ u_xx = torch.autograd.grad(u_x, x, grad_outputs=torch.ones_like(u_x), create_graph=True)[0]
+ u_y = torch.autograd.grad(u_pred, y, grad_outputs=torch.ones_like(u), create_graph=True)[0]
+ u_yy = torch.autograd.grad(u_y, y, grad_outputs=torch.ones_like(u_y), create_graph=True)[0]
+ u_t = torch.autograd.grad(u_pred, t, grad_outputs=torch.ones_like(u), create_graph=True)[0]
+
+ v_x = torch.autograd.grad(v_pred, x, grad_outputs=torch.ones_like(v), create_graph=True)[0]
+ v_xx = torch.autograd.grad(v_x, x, grad_outputs=torch.ones_like(v_x), create_graph=True)[0]
+ v_y = torch.autograd.grad(v_pred, y, grad_outputs=torch.ones_like(v), create_graph=True)[0]
+ v_yy = torch.autograd.grad(v_y, y, grad_outputs=torch.ones_like(v_y), create_graph=True)[0]
+ v_t = torch.autograd.grad(v_pred, t, grad_outputs=torch.ones_like(v), create_graph=True)[0]
+
+
+ p_x = torch.autograd.grad(p_pred, x, grad_outputs=torch.ones_like(p), create_graph=True)[0]
+ p_y = torch.autograd.grad(p_pred, y, grad_outputs=torch.ones_like(p), create_graph=True)[0]
+
+
+ f_u = lambda1*(u_t + u_pred * u_x + v_pred * u_y) + p_x - lambda2 * (u_xx + u_yy)
+ f_v = lambda1(v_t + u_pred * v_x + v_pred * v_y)-lambda1*9.81 + p_y - lambda2 * (v_xx + v_yy)
+
+ f_u_loss = torch.mean(f_u ** 2)
+ f_v_loss = torch.mean(f_v ** 2)
+ physical_loss = f_u_loss + f_v_loss
+ diagnostics = {
+    	"physical_loss": physical_loss,
+    	"f_u_loss": f_u_loss,
+    	"f_v_loss": f_v_loss,
+	}
+ return physical_loss, diagnostics
