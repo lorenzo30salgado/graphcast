@@ -19,6 +19,7 @@ from graphcast import xarray_tree
 import numpy as np
 from typing_extensions import Protocol
 import xarray
+import torch
 
 
 LossAndDiagnostics = tuple[xarray.DataArray, xarray.Dataset]
@@ -192,10 +193,11 @@ def physical_loss(predictions: xarray.Dataset) -> LossAndDiagnostics:
  x = predictions['x']
  y = predictions['y']
  t = predictions['t']
- #air viscosity
- lambda1 = (1.458e-6*(t+273.15)**1.5)/((t+273.15)+110.4)
- #air density
- lambda2 = p_pred/(287.05*(t+273.15))
+ 
+ #air viscosity lambda1 
+ nu = (1.458e-6*(t+273.15)**1.5)/((t+273.15)+110.4)
+ #air density lambda2
+ ro = p_pred/(287.05*(t+273.15))
  
  u_x = torch.autograd.grad(u_pred, x, grad_outputs=torch.ones_like(u), create_graph=True)[0]
  u_xx = torch.autograd.grad(u_x, x, grad_outputs=torch.ones_like(u_x), create_graph=True)[0]
@@ -214,15 +216,17 @@ def physical_loss(predictions: xarray.Dataset) -> LossAndDiagnostics:
  p_y = torch.autograd.grad(p_pred, y, grad_outputs=torch.ones_like(p), create_graph=True)[0]
 
 
- f_u = lambda1*(u_t + u_pred * u_x + v_pred * u_y) + p_x - lambda2 * (u_xx + u_yy)
- f_v = lambda1(v_t + u_pred * v_x + v_pred * v_y)-lambda1*9.81 + p_y - lambda2 * (v_xx + v_yy)
+ f_u = nu*(u_t + u_pred * u_x + v_pred * u_y) + p_x - ro * (u_xx + u_yy)
+ f_v = nu(v_t + u_pred * v_x + v_pred * v_y)-nu*9.81 + p_y - ro * (v_xx + v_yy)
 
  f_u_loss = torch.mean(f_u ** 2)
  f_v_loss = torch.mean(f_v ** 2)
+ 
  physical_loss = f_u_loss + f_v_loss
  diagnostics = {
     	"physical_loss": physical_loss,
     	"f_u_loss": f_u_loss,
     	"f_v_loss": f_v_loss,
 	}
+ 
  return physical_loss, diagnostics
